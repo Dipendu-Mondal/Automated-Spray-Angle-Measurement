@@ -22,26 +22,7 @@ st.set_page_config(
 # CUSTOM CSS
 # =========================================================
 
-st.markdown("""
-<style>
-
-.stApp {
-    background-color: #0E1117;
-    color: white;
-}
-
-h1, h2, h3 {
-    color: white;
-}
-
-[data-testid="metric-container"] {
-    background-color: #1E1E1E;
-    padding: 15px;
-    border-radius: 10px;
-}
-
-</style>
-""", unsafe_allow_html=True)
+st.markdown(""" <style> [data-testid="metric-container"] { border: 1px solid rgba(128,128,128,0.2); padding: 15px; border-radius: 12px; background-color: rgba(128,128,128,0.08); } div[data-testid="stExpander"] { border-radius: 10px; overflow: hidden; } </style> """, unsafe_allow_html=True)
 
 # =========================================================
 # TITLE
