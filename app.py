@@ -8,6 +8,7 @@ from scipy.signal import find_peaks
 from PIL import Image
 from datetime import datetime
 import sqlite3
+import pytz
 
 # =========================================================
 # PAGE CONFIG
@@ -19,10 +20,26 @@ st.set_page_config(
 )
 
 # =========================================================
-# CUSTOM CSS
+# SYSTEM THEME FRIENDLY CSS
 # =========================================================
 
-st.markdown(""" <style> [data-testid="metric-container"] { border: 1px solid rgba(128,128,128,0.2); padding: 15px; border-radius: 12px; background-color: rgba(128,128,128,0.08); } div[data-testid="stExpander"] { border-radius: 10px; overflow: hidden; } </style> """, unsafe_allow_html=True)
+st.markdown("""
+<style>
+
+[data-testid="metric-container"] {
+    border: 1px solid rgba(128,128,128,0.2);
+    padding: 15px;
+    border-radius: 12px;
+    background-color: rgba(128,128,128,0.08);
+}
+
+div[data-testid="stExpander"] {
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+</style>
+""", unsafe_allow_html=True)
 
 # =========================================================
 # TITLE
@@ -33,6 +50,12 @@ st.title("Spray Inspection Dashboard")
 st.markdown(
     "Cloud-Based Multi Image Spray Analysis System"
 )
+
+# =========================================================
+# IST TIMEZONE
+# =========================================================
+
+ist = pytz.timezone("Asia/Kolkata")
 
 # =========================================================
 # DATABASE
@@ -86,16 +109,28 @@ def process_image(image):
 
     image_np = np.array(image)
 
+    # =====================================================
+    # GRAYSCALE
+    # =====================================================
+
     gray = cv2.cvtColor(
         image_np,
         cv2.COLOR_RGB2GRAY
     )
+
+    # =====================================================
+    # BLUR
+    # =====================================================
 
     blur = cv2.GaussianBlur(
         gray,
         (5,5),
         0
     )
+
+    # =====================================================
+    # THRESHOLD
+    # =====================================================
 
     thresh = cv2.adaptiveThreshold(
         blur,
@@ -105,6 +140,10 @@ def process_image(image):
         11,
         2
     )
+
+    # =====================================================
+    # EDGE DETECTION
+    # =====================================================
 
     edges = cv2.Canny(
         thresh,
@@ -118,6 +157,10 @@ def process_image(image):
 
     cropped_edges = edges[crop_start:, :]
 
+    # =====================================================
+    # LINE DETECTION
+    # =====================================================
+
     lines = cv2.HoughLinesP(
         cropped_edges,
         rho=1,
@@ -127,12 +170,16 @@ def process_image(image):
         maxLineGap=20
     )
 
-    line_image = np.zeros_like(cropped_edges)
+    boundary_image = np.zeros_like(cropped_edges)
 
     overlay = image_np.copy()
 
     left_angles = []
     right_angles = []
+
+    # =====================================================
+    # DETECT SPRAY BOUNDARIES
+    # =====================================================
 
     if lines is not None:
 
@@ -147,12 +194,14 @@ def process_image(image):
                 )
             )
 
+            # LEFT SIDE
+
             if -80 < angle < -10:
 
                 left_angles.append(angle)
 
                 cv2.line(
-                    line_image,
+                    boundary_image,
                     (x1,y1),
                     (x2,y2),
                     255,
@@ -161,18 +210,20 @@ def process_image(image):
 
                 cv2.line(
                     overlay,
-                    (x1, y1 + crop_start),
-                    (x2, y2 + crop_start),
+                    (x1,y1 + crop_start),
+                    (x2,y2 + crop_start),
                     (0,255,0),
                     3
                 )
+
+            # RIGHT SIDE
 
             elif 10 < angle < 80:
 
                 right_angles.append(angle)
 
                 cv2.line(
-                    line_image,
+                    boundary_image,
                     (x1,y1),
                     (x2,y2),
                     255,
@@ -181,11 +232,15 @@ def process_image(image):
 
                 cv2.line(
                     overlay,
-                    (x1, y1 + crop_start),
-                    (x2, y2 + crop_start),
+                    (x1,y1 + crop_start),
+                    (x2,y2 + crop_start),
                     (0,255,0),
                     3
                 )
+
+    # =====================================================
+    # SPRAY ANGLE
+    # =====================================================
 
     spray_angle = None
 
@@ -214,7 +269,7 @@ def process_image(image):
     )
 
     # =====================================================
-    # SPRAY ANGLE TEXT
+    # ANGLE TEXT
     # =====================================================
 
     if spray_angle is not None:
@@ -230,12 +285,16 @@ def process_image(image):
         )
 
     # =====================================================
-    # SPRAY PROFILE
+    # PROFILE EXTRACTION
     # =====================================================
 
     sample_y = int(h * 0.55)
 
     profile = gray[sample_y, :]
+
+    # =====================================================
+    # PEAK DETECTION
+    # =====================================================
 
     peaks, _ = find_peaks(
         profile,
@@ -244,7 +303,7 @@ def process_image(image):
     )
 
     # =====================================================
-    # PEAK MARKERS
+    # PEAK VISUALIZATION
     # =====================================================
 
     for peak in peaks:
@@ -271,7 +330,7 @@ def process_image(image):
         "gray": gray,
         "binary": thresh,
         "edges": edges,
-        "boundary": line_image,
+        "boundary": boundary_image,
         "overlay": overlay,
         "heatmap": heatmap,
         "angle": spray_angle,
@@ -296,8 +355,12 @@ if uploaded_files:
 
         result = process_image(image)
 
-        timestamp = datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
+        # =================================================
+        # IST TIMESTAMP
+        # =================================================
+
+        timestamp = datetime.now(ist).strftime(
+            "%Y-%m-%d %H:%M:%S IST"
         )
 
         results.append({
@@ -308,6 +371,10 @@ if uploaded_files:
             "Peak Count": result["peak_count"],
             "Timestamp": timestamp
         })
+
+        # =================================================
+        # DATABASE INSERT
+        # =================================================
 
         cursor.execute("""
         INSERT INTO inspections (
@@ -367,7 +434,7 @@ if uploaded_files:
     )
 
     # =====================================================
-    # ANGLE DISTRIBUTION
+    # HISTOGRAM
     # =====================================================
 
     st.subheader("Angle Distribution")
@@ -415,9 +482,9 @@ if uploaded_files:
 
             col1, col2 = st.columns(2)
 
-            # =============================================
+            # =================================================
             # LEFT COLUMN
-            # =============================================
+            # =================================================
 
             with col1:
 
@@ -439,9 +506,9 @@ if uploaded_files:
                     use_container_width=True
                 )
 
-            # =============================================
+            # =================================================
             # RIGHT COLUMN
-            # =============================================
+            # =================================================
 
             with col2:
 
@@ -475,9 +542,9 @@ if uploaded_files:
                     result["peak_count"]
                 )
 
-                # =========================================
+                # =============================================
                 # PROFILE GRAPH
-                # =========================================
+                # =============================================
 
                 fig2, ax2 = plt.subplots(
                     figsize=(8,3)
@@ -504,7 +571,7 @@ if uploaded_files:
                 st.pyplot(fig2)
 
 # =========================================================
-# DATABASE VIEW
+# DATABASE DISPLAY
 # =========================================================
 
 if show_database:
@@ -522,7 +589,7 @@ if show_database:
     )
 
 # =========================================================
-# CSV EXPORT
+# CSV DOWNLOAD
 # =========================================================
 
 if uploaded_files:
